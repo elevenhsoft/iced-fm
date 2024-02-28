@@ -1,8 +1,7 @@
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::{env, fs};
 
-use iced::widget::{button, column, scrollable, text, text_input, Container};
+use iced::widget::{button, column, row, scrollable, text, text_input, Container};
 use iced::{executor, Length};
 use iced::{Application, Command, Element, Theme};
 
@@ -20,6 +19,16 @@ impl std::fmt::Display for Content {
                 write!(f, "{}", file_data.name)
             }
             Content::Corrupt => write!(f, "File or directory corrupted."),
+        }
+    }
+}
+
+impl Content {
+    fn size(&self) -> u64 {
+        match self {
+            Content::File(files) => files.size,
+            Content::Directory(dirs) => dirs.size,
+            Content::Corrupt => 0,
         }
     }
 }
@@ -57,7 +66,7 @@ impl ContentData {
         };
 
         let size = match Path::new(&path).metadata() {
-            Ok(meta) => meta.size(),
+            Ok(meta) => meta.len() / 1024,
             Err(_) => 0,
         };
 
@@ -80,6 +89,7 @@ pub enum Message {
     PathInput(String),
     PathChange,
     ContentClicked(Content),
+    Sort,
 }
 
 impl Application for FilePicker {
@@ -113,20 +123,34 @@ impl Application for FilePicker {
                     self.path = dir.path.clone();
                     self.content = get_dir_content(dir.path);
                 }
-                _ => {}
+                Content::File(file) => {
+                    self.path = file.path;
+                }
+                Content::Corrupt => {}
             },
+            Message::Sort => {}
         };
 
         Command::none()
     }
 
     fn view(&self) -> Element<Self::Message> {
-        let mut content = column!().spacing(10);
+        let mut content = column!();
         let adress_bar = text_input("Path: ", &self.path)
             .on_input(Message::PathInput)
-            .on_submit(Message::PathChange);
+            .on_submit(Message::PathChange)
+            .padding(10);
 
         content = content.push(adress_bar);
+
+        let row = row!(
+            text("Name").width(Length::FillPortion(2)),
+            text("Size").width(Length::FillPortion(1))
+        )
+        .height(48.);
+        let header = button(row).on_press(Message::Sort);
+        content = content.push(header);
+
         content = content.push(self.list_dir());
 
         Container::new(content).padding(20).into()
@@ -138,10 +162,12 @@ impl FilePicker {
         let mut col = column!();
 
         for file in &self.content {
-            let item = button(text(file.to_string()))
-                .width(Length::Fill)
-                .height(Length::Fixed(48.))
-                .on_press(Message::ContentClicked(file.clone()));
+            let size = text(format!("{} Kb", file.size())).width(Length::FillPortion(1));
+            let filename = text(file.to_string()).width(Length::FillPortion(2));
+            let row = row!(filename, size);
+            let item = button(row)
+                .on_press(Message::ContentClicked(file.clone()))
+                .height(48.);
             col = col.push(item);
         }
 
